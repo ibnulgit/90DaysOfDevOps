@@ -1,273 +1,196 @@
-# Day 13 – Linux Volume Management (LVM)
+# Day 14 – Networking Fundamentals & Hands-on Checks
 
-Today I learned how **Linux Logical Volume Management (LVM)** works and how it allows flexible disk management.
-With LVM, storage can be **created, resized, and extended dynamically** without needing to repartition disks.
+## Quick Concepts
 
----
+### OSI vs TCP/IP
+- OSI (7 layers) is a conceptual model; TCP/IP (4 layers) is what real networks actually use.
+- TCP/IP merges OSI layers (e.g., OSI Session + Presentation → Application).
 
-# Step 0 – Switch to Root User
+### Where things sit
+- IP → Internet layer  
+- TCP/UDP → Transport layer  
+- HTTP/HTTPS, DNS → Application layer  
 
-```bash
-sudo -i
-```
-
-This allows running LVM commands without permission issues.
-
----
-
-# Step 1 – Create Virtual Disk (If No Spare Disk)
-
-Create a 1GB virtual disk file:
-
-```bash
-dd if=/dev/zero of=/tmp/disk1.img bs=1M count=1024
-```
-
-Attach it as a loop device:
-
-```bash
-losetup -fP /tmp/disk1.img
-```
-
-Check loop devices:
-
-```bash
-losetup -a
-```
-
-Example Output:
-
-```
-/dev/loop0: [2065]:123456 (/tmp/disk1.img)
-```
+### Real Example
+- `curl https://example.com` = HTTP (Application) → TCP (Transport) → IP (Internet)
 
 ---
 
-# Task 1 – Check Current Storage
-
-Commands used:
-
-```bash
-lsblk
-pvs
-vgs
-lvs
-df -h
-```
-
-Example Output:
-
-```
-NAME   MAJ:MIN RM SIZE RO TYPE MOUNTPOINT
-loop0    7:0    0 1G  0 loop
-```
-
-Observation:
-
-* No physical volumes or volume groups exist yet.
+## Target Host
+Using: `google.com`
 
 ---
 
-# Task 2 – Create Physical Volume
+## Hands-on Checklist
 
-Create a physical volume:
-
+### Identity
 ```bash
-pvcreate /dev/loop0
-```
+hostname -I
+````
 
-Verify:
-
-```bash
-pvs
-```
-
-Example Output:
+**Output:**
 
 ```
-PV         VG        Fmt  Attr PSize PFree
-/dev/loop0           lvm2 ---  1.00g 1.00g
+192.168.1.105
 ```
+
+* Observation: Private LAN IP assigned by router (DHCP).
 
 ---
 
-# Task 3 – Create Volume Group
-
-Create a volume group named **devops-vg**:
+### Reachability
 
 ```bash
-vgcreate devops-vg /dev/loop0
+ping -c 4 google.com
 ```
 
-Verify:
-
-```bash
-vgs
-```
-
-Example Output:
+**Output (trimmed):**
 
 ```
-VG        #PV #LV #SN Attr   VSize  VFree
-devops-vg   1   0   0 wz--n- 1.00g 1.00g
+64 bytes from 142.250.192.14: icmp_seq=1 ttl=116 time=28.4 ms
+64 bytes from 142.250.192.14: icmp_seq=2 ttl=116 time=26.9 ms
 ```
+
+* Observation: ~25–30 ms latency, 0% packet loss → stable connectivity.
 
 ---
 
-# Task 4 – Create Logical Volume
-
-Create a **500MB logical volume**:
+### Path
 
 ```bash
-lvcreate -L 500M -n app-data devops-vg
+traceroute google.com
 ```
 
-Verify:
-
-```bash
-lvs
-```
-
-Example Output:
+**Output (trimmed):**
 
 ```
-LV       VG        Attr       LSize
-app-data devops-vg -wi-a----- 500.00m
+1  192.168.1.1       1.2 ms
+2  10.0.0.1          5.4 ms
+3  * * *
+4  72.14.xxx.xxx     22.1 ms
 ```
+
+* Observation: Some hops don’t respond (*), which is normal (ICMP blocked).
 
 ---
 
-# Task 5 – Format and Mount Logical Volume
-
-Format the logical volume:
+### Ports
 
 ```bash
-mkfs.ext4 /dev/devops-vg/app-data
+ss -tulpn
 ```
 
-Create mount directory:
-
-```bash
-mkdir -p /mnt/app-data
-```
-
-Mount the volume:
-
-```bash
-mount /dev/devops-vg/app-data /mnt/app-data
-```
-
-Verify mount:
-
-```bash
-df -h /mnt/app-data
-```
-
-Example Output:
+**Output (trimmed):**
 
 ```
-Filesystem                     Size  Used Avail Use% Mounted on
-/dev/mapper/devops--vg-app--data 492M  24K  455M   1% /mnt/app-data
+tcp   LISTEN  0  128  0.0.0.0:22     0.0.0.0:*    users:(("sshd",pid=712))
+tcp   LISTEN  0  128  127.0.0.1:631  0.0.0.0:*    users:(("cupsd",pid=654))
 ```
+
+* Observation: SSH running on port 22; CUPS service on 631.
 
 ---
 
-# Task 6 – Extend the Volume
-
-Extend the logical volume by **200MB**:
+### Name Resolution
 
 ```bash
-lvextend -L +200M /dev/devops-vg/app-data
+dig google.com +short
 ```
 
-Resize filesystem:
+**Output:**
+
+```
+142.250.192.14
+142.250.192.46
+```
+
+* Observation: Multiple IPs → DNS load balancing.
+
+---
+
+### HTTP Check
 
 ```bash
-resize2fs /dev/devops-vg/app-data
+curl -I https://google.com
 ```
 
-Verify new size:
+**Output (trimmed):**
+
+```
+HTTP/2 200 
+content-type: text/html; charset=UTF-8
+```
+
+* Observation: HTTP 200 OK → service reachable and healthy.
+
+---
+
+### Connections Snapshot
 
 ```bash
-df -h /mnt/app-data
+netstat -an | head
 ```
 
-Example Output:
+**Output (trimmed):**
 
 ```
-Filesystem                     Size  Used Avail Use% Mounted on
-/dev/mapper/devops--vg-app--data 688M  24K  640M   1% /mnt/app-data
+tcp  0  0 127.0.0.1:631   0.0.0.0:*    LISTEN
+tcp  0  0 192.168.1.105:22 192.168.1.10:53422 ESTABLISHED
 ```
+
+* Observation: Both LISTEN and ESTABLISHED connections present → normal activity.
 
 ---
 
-# Commands Used
+## Mini Task: Port Probe & Interpret
+
+### Selected Port
+
+* Port: 22 (SSH)
+
+### Test
+
+```bash
+nc -zv localhost 22
+```
+
+**Output:**
 
 ```
-sudo -i
-dd
-losetup
-lsblk
-pvcreate
-pvs
-vgcreate
-vgs
-lvcreate
-lvs
-mkfs.ext4
-mkdir
-mount
-df -h
-lvextend
-resize2fs
+Connection to localhost 22 port [tcp/ssh] succeeded!
 ```
+
+* Result: Port is reachable.
+
+### If Not Reachable
+
+* Check:
+
+  * `systemctl status ssh`
+  * `ufw status` / `iptables -L`
+  * Service binding (`ss -tulpn`)
 
 ---
 
-# What I Learned
+## Reflection
 
-1. **LVM provides flexible storage management** by separating physical storage from logical volumes.
-2. Storage can be **extended without downtime** by resizing logical volumes.
-3. LVM structure consists of:
+### Fastest Signal When Broken
 
-```
-Physical Volume (PV) → Volume Group (VG) → Logical Volume (LV)
-```
+* `curl -I` → fastest way to confirm service availability.
+* `ping` → quick network connectivity check.
 
 ---
 
-# Why LVM Matters in DevOps
+### Layer Troubleshooting
 
-LVM is useful in real-world environments because:
-
-* Storage can be extended dynamically as applications grow.
-* It allows better disk management for servers and databases.
-* It is commonly used in **cloud servers, Kubernetes nodes, and enterprise Linux systems**.
+* DNS failure → Application layer (DNS) + Internet layer (IP routing)
+* HTTP 500 → Application layer (server-side issue)
 
 ---
 
-# Screenshots Included
+### Follow-up Checks in Real Incident
 
-```
-lsblk-output.png
-pvcreate-output.png
-vgcreate-output.png
-lvcreate-output.png
-lvextend-output.png
-```
+* Check service logs (`journalctl -u <service>`)
+* Verify firewall/security group rules
 
 ---
-
-# LinkedIn Post
-
-**Day 13 of #90DaysOfDevOps**
-
-Today I learned Linux Logical Volume Management (LVM).
-
-I created physical volumes, volume groups, and logical volumes, then extended storage dynamically without repartitioning the disk.
-
-This is a powerful feature used in production servers.
-
-#90DaysOfDevOps
-#DevOpsKaJosh
-#TrainWithShubham
